@@ -108,7 +108,7 @@ class FeedFoward(nn.Module):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(n_embd, 4 * n_embd),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Linear(4 * n_embd, n_embd),
             nn.Dropout(dropout),
         )
@@ -186,7 +186,7 @@ class BigramLanguageModel(nn.Module):
 model = BigramLanguageModel()
 m = model.to(device)
 # print the number of parameters in the model
-print(sum(p.numel() for p in m.parameters())/1e6, 'M parameters')
+#print(sum(p.numel() for p in m.parameters())/1e6, 'M parameters')
 
 # create a PyTorch optimizer
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
