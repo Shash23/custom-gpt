@@ -5,3 +5,5 @@ gelu over relu
 
 EX1: The n-dimensional tensor mastery challenge: Combine the `Head` and `MultiHeadAttention` into one class that processes all the heads in parallel, treating the heads as another batch dimension (answer is in nanoGPT).
 
+next steps: i. add RoPe for better position encoding, ii. the model is way too overgeneralized, fix that. 
+
