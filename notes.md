@@ -7,3 +7,8 @@ EX1: The n-dimensional tensor mastery challenge: Combine the `Head` and `MultiHe
 
 next steps: i. add RoPe for better position encoding, ii. the model is way too overgeneralized, fix that. 
 
+i. rope added. train loss went down to 1.6082 but val loss came to 1.7799
+
+regularizing the model
+i. increasing dropout 0.0 -> 0.5 -> 0.2
+ii. increasing model capacity from 64 -> 128

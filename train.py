@@ -10,10 +10,10 @@ eval_interval = 100
 learning_rate = 1e-3
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
-n_embd = 64
+n_embd = 128
 n_head = 4
 n_layer = 4
-dropout = 0.0
+dropout = 0.2
 # ------------
 
 torch.manual_seed(1337)
@@ -45,6 +45,47 @@ data = torch.tensor(encode(text), dtype=torch.long)
 n = int(0.9*len(data)) # first 90% will be train, rest val
 train_data = data[:n]
 val_data = data[n:]
+
+def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0):
+    """
+    Precomputes the frequencies and their complex exponentials for RoPE.
+    """
+    freqs = 1.0 / (theta ** (torch.arange(0, dim, 2)[: (dim // 2)].float() / dim))
+    t = torch.arange(end, device=freqs.device)
+    freqs = torch.outer(t, freqs).float()
+    freqs_cis = torch.polar(torch.ones_like(freqs), freqs)  # complex
+    return freqs_cis
+
+def reshape_for_broadcast(freqs_cis: torch.Tensor, x: torch.Tensor):
+    """
+    Reshapes frequency tensor for broadcasting with input tensor.
+    freqs_cis: Expected shape (T, head_size // 2)
+    x: Expected shape (B, n_head, T, head_size // 2) (complex view of xq/xk)
+    Desired output shape for freqs_cis: (1, 1, T, head_size // 2)
+    """
+    # Simply add two singleton dimensions at the beginning for batch and head dimensions.
+    return freqs_cis.view(1, 1, *freqs_cis.shape)
+
+
+def apply_rotary_pos_emb(xq: torch.Tensor, xk: torch.Tensor, freqs_cis: torch.Tensor):
+    """
+    Applies rotary positional embeddings to query and key tensors.
+    The input tensors xq and xk are expected to have shape (B, n_head, T, head_size).
+    """
+    # xq, xk are (B, n_head, T, head_size)
+    # Reshape for complex view: (B, n_head, T, head_size // 2, 2) -> (B, n_head, T, head_size // 2) complex
+    xq_ = torch.view_as_complex(xq.float().reshape(*xq.shape[:-1], -1, 2))
+    xk_ = torch.view_as_complex(xk.float().reshape(*xk.shape[:-1], -1, 2))
+
+    # freqs_cis is (T, head_size // 2)
+    # Reshape freqs_cis to (1, 1, T, head_size // 2) for broadcasting across B and n_head
+    freqs_cis = reshape_for_broadcast(freqs_cis, xq_) # xq_ is (B, n_head, T, head_size // 2) complex
+
+    xq_out = torch.view_as_real(xq_ * freqs_cis).flatten(3) # Flatten the last two dimensions (complex and real parts)
+    xk_out = torch.view_as_real(xk_ * freqs_cis).flatten(3)
+
+    return xq_out.type_as(xq), xk_out.type_as(xk)
+
 
 # data loading
 def get_batch(split):
@@ -89,6 +130,10 @@ class MultiHeadAttention(nn.Module):
         # causal mask
         self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
 
+        #RoPE: precompute frequencies once for all heads
+        self.freqs_cis = precompute_freqs_cis(head_size, block_size).to(device)
+
+
     def forward(self, x):
         
 
@@ -101,8 +146,11 @@ class MultiHeadAttention(nn.Module):
         q = self.query(x).view(B, T, self.n_head, self.head_size).transpose(1, 2)
         v = self.value(x).view(B, T, self.n_head, self.head_size).transpose(1, 2)
 
+        # apply RoPE to query and key
+        q_rot, k_rot = apply_rotary_pos_emb(q, k, self.freqs_cis[:T])
 
-        wei = q @ k.transpose(-2, -1) * (self.head_size ** -0.5)  # (B, n_head, T, T)
+
+        wei = q_rot @ k_rot.transpose(-2, -1) * (self.head_size ** -0.5)  # (B, n_head, T, T)
         wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf'))
         wei = F.softmax(wei, dim=-1)
         wei = self.dropout(wei)
@@ -206,11 +254,29 @@ m = model.to(device)
 # create a PyTorch optimizer
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
+# Early Stopping variables
+best_val_loss = float('inf')
+patience = 10 # Number of eval_intervals to wait for validation loss improvement
+patience_counter = 0
+
 for iter in range(max_iters):
     # every once in a while evaluate the loss on train and val sets
     if iter % eval_interval == 0 or iter == max_iters - 1:
         losses = estimate_loss()
-        print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+        current_val_loss = losses['val']
+        print(f"step {iter}: train loss {losses['train']:.4f}, val loss {current_val_loss:.4f}")
+
+        # Early stopping logic
+        if current_val_loss < best_val_loss:
+            best_val_loss = current_val_loss
+            patience_counter = 0
+            # Optional: Save the model's state_dict here if you want to load the best performing model later
+            # torch.save(model.state_dict(), 'best_model.pth')
+        else:
+            patience_counter += 1
+            if patience_counter >= patience:
+                print(f"Early stopping at step {iter}: Validation loss has not improved for {patience} intervals.")
+                break # Exit the training loop
 
     # sample a batch of data
     xb, yb = get_batch('train')
