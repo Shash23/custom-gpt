@@ -4,12 +4,15 @@ Lightweight implementation of a GPT model for character-level text generation.
 
 This project implements a compact and efficient **transformer-based language model** for character-level generation. The core logic is defined in **`train.py`**, featuring **multi-head self-attention** and **Rotary Position Embeddings (RoPE)** for improved positional encoding.
 
-Model experimentation and architectural modifications are developed in **`gpt-dev.ipynb`**, which serves as the foundation for the finalized training script. The **`data/`** folder includes an **`input.txt`** file for localized testing, with optional support for a subset of **Hugging Face’s American Stories** dataset (currently excluded from version control).
+All model development occurs in the **`development/`** directory. Model experimentation and architectural modifications are developed in **`gpt-dev.ipynb`**, which serves as the foundation for the finalized training script. Performance and speed comparisons between model variants are documented in **`benchmarking.py`**, and also visualized within the notebook.
 
-Performance and speed comparisons between model variants are documented in **`benchmarking.py`**, and also visualized within the notebook. This project supports both **GPU and CPU** execution environments. 
+The **`data/`** directory includes an **`input.txt`** file for localized testing, with optional support for a subset of **Hugging Face's American Stories** dataset (currently excluded from version control).
 
-This project remins under **active development**.
+The **`notes/`** directory includes notes I took during learning and development of the project.
 
+This project supports both **GPU and CPU** execution environments. The model will automatically use CUDA if available, falling back to CPU if not. Training times will vary significantly between GPU and CPU execution.
+
+This project remains under **active development**.
 
 ## Features
 
@@ -22,6 +25,21 @@ This project remins under **active development**.
 - Configurable model architecture (embedding dimension, number of heads, layers)
 - Training with early stopping and validation monitoring
 - Character-level text generation with temperature sampling
+
+## Project Structure
+
+```
+mini-gpt/
+├── data/                  # Data directory
+│   ├── input.txt         # Training text data
+│   └── american_stories/ # Optional dataset (excluded from git)
+├── development/          # Core development files
+│   ├── train.py         # Main training script
+│   ├── gpt-dev.ipynb    # Development notebook
+│   └── benchmarking.py  # Performance comparisons
+├── notes/               # Development notes
+└── README.md           # This file
+```
 
 ## Installation
 
@@ -41,11 +59,12 @@ pip install torch numpy matplotlib
 ### Training the Model
 
 1. Prepare your training data:
-   - Place your text data in `input.txt` in the project root directory
+   - Place your text data in `data/input.txt`
    - Or use the default sample text that will be created if no input file is found
 
 2. Run the training script:
 ```bash
+cd development
 python train.py
 ```
 
@@ -58,17 +77,31 @@ The model will train with the following default hyperparameters:
 - Dropout: 0.2
 - Learning rate: 1e-3
 
+The trained model will be saved as `development/best_model.pth`. This checkpoint contains the model's state dictionary and can be used for inference or continued training.
+
+### Development Environment
+
+For development and experimentation:
+1. The `gpt-dev.ipynb` notebook contains interactive development and visualization
+2. Use `benchmarking.py` to compare performance between different model variants
+3. All development files are in the `development/` directory for easy access
+
 ### Generating Text
 
 After training, the model will automatically generate sample text. It will also display loss. You can also generate text programmatically:
 
 ```python
 import torch
+import sys
+import os
+
+# Add the development directory to the Python path
+sys.path.append(os.path.join(os.path.dirname(__file__), 'development'))
 from train import TransformerLanguageModel, decode
 
 # Load your trained model
 model = TransformerLanguageModel()
-model.load_state_dict(torch.load('best_model.pth'))
+model.load_state_dict(torch.load('development/best_model.pth'))
 
 # Generate text
 context = torch.zeros((1, 1), dtype=torch.long)
